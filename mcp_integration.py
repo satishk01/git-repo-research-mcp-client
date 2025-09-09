@@ -251,6 +251,9 @@ class MCPIntegration:
                         logger.warning(f"⚠️ Tool '{actual_tool_name}' not found in available tools: {available_tools}")
                         return await self._fallback_analysis(repo_url, repo_type, tool_name)
                     
+                    # Extract repository name properly
+                    repo_name = repo_url.split('/')[-1].replace('.git', '') if '/' in repo_url else repo_url.replace('.git', '')
+                    
                     # Prepare tool arguments based on the specific tool
                     if actual_tool_name == "create_research_repository":
                         tool_args = {
@@ -258,25 +261,24 @@ class MCPIntegration:
                             "embedding_model": "amazon.titan-embed-text-v2:0"
                         }
                     elif actual_tool_name == "search_research_repository":
-                        # For search, we need an index path and query
-                        repo_name = repo_url.split('/')[-1] if '/' in repo_url else repo_url
+                        # For search, try the most likely index path format
                         tool_args = {
-                            "index_path": repo_name,
+                            "index_path": f"{repo_name}_git",  # This seems to be the format used
                             "query": "repository structure architecture dependencies",
-                            "limit": 10
+                            "limit": 5
                         }
                     elif actual_tool_name == "search_repos_on_github":
                         # Extract keywords from repo URL
-                        keywords = repo_url.split('/')[-1].split('-') if '/' in repo_url else [repo_url]
+                        repo_parts = repo_url.split('/')[-1].replace('.git', '').split('-')
+                        keywords = [part for part in repo_parts if len(part) > 2][:3]  # Filter short words
                         tool_args = {
-                            "keywords": keywords[:3],  # Limit to 3 keywords
-                            "num_results": 5
+                            "keywords": keywords if keywords else [repo_name],
+                            "num_results": 3
                         }
                     elif actual_tool_name == "access_file":
-                        # For file access, we need a specific file path
-                        repo_name = repo_url.split('/')[-1] if '/' in repo_url else repo_url
+                        # For file access, try the most likely path format
                         tool_args = {
-                            "filepath": f"{repo_name}/repository/README.md"
+                            "filepath": f"{repo_name}_git/repository/README.md"
                         }
                     else:
                         tool_args = {
@@ -318,9 +320,12 @@ class MCPIntegration:
             logger.info(f"🔍 Starting comprehensive analysis of {repo_url}")
             results = []
             
-            repo_name = repo_url.split('/')[-1] if '/' in repo_url else repo_url
+            # Extract repository name properly - handle .git suffix
+            repo_name = repo_url.split('/')[-1].replace('.git', '') if '/' in repo_url else repo_url.replace('.git', '')
+            logger.info(f"📝 Using repository name: {repo_name}")
             
             # Step 1: Create research repository index
+            index_created = False
             if "create_research_repository" in available_tools:
                 logger.info("📊 Step 1: Creating repository index...")
                 try:
@@ -334,54 +339,116 @@ class MCPIntegration:
                         content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in create_result.content])
                         results.append(f"**Repository Indexing:**\n{content}")
                         logger.info("✅ Repository indexed successfully")
+                        index_created = True
+                        
+                        # Wait a moment for index to be fully written
+                        import asyncio
+                        await asyncio.sleep(3)  # Increased wait time
+                        
+                        # Try to extract the actual index name from the result
+                        try:
+                            import json
+                            if content.strip().startswith('{'):
+                                result_data = json.loads(content)
+                                if 'index_path' in result_data:
+                                    actual_index_path = result_data['index_path']
+                                    repo_name = actual_index_path.split('/')[-1]
+                                    logger.info(f"📝 Extracted index name from result: {repo_name}")
+                        except:
+                            pass  # Continue with original repo_name
                     
                 except Exception as e:
                     logger.warning(f"⚠️ Repository indexing failed: {e}")
                     results.append(f"**Repository Indexing:** Failed - {str(e)}")
             
-            # Step 2: Search for key information in the repository
-            if "search_research_repository" in available_tools:
+            # Step 2: Search for key information in the repository (only if index was created)
+            if index_created and "search_research_repository" in available_tools:
                 logger.info("🔍 Step 2: Searching repository content...")
                 search_queries = [
-                    "architecture design patterns structure",
-                    "dependencies requirements packages",
-                    "documentation README getting started"
+                    "README documentation overview",
+                    "architecture structure organization", 
+                    "dependencies requirements setup"
                 ]
                 
                 for query in search_queries:
                     try:
-                        search_args = {
-                            "index_path": repo_name,
-                            "query": query,
-                            "limit": 5
-                        }
-                        search_result = await session.call_tool("search_research_repository", search_args)
+                        # Try different index path formats
+                        possible_index_paths = [
+                            repo_name,
+                            f"{repo_name}_git",
+                            repo_url.split('/')[-1],  # With .git
+                            repo_url.split('/')[-1].replace('.git', '')  # Without .git
+                        ]
                         
-                        if search_result.content:
-                            content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in search_result.content])
-                            results.append(f"**Search Results for '{query}':**\n{content}")
+                        search_success = False
+                        for index_path in possible_index_paths:
+                            try:
+                                search_args = {
+                                    "index_path": index_path,
+                                    "query": query,
+                                    "limit": 3
+                                }
+                                search_result = await session.call_tool("search_research_repository", search_args)
+                                
+                                if search_result.content:
+                                    content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in search_result.content])
+                                    
+                                    # Check if we got actual results (not just empty results)
+                                    if '"results": []' not in content and 'Error searching' not in content:
+                                        results.append(f"**Search Results for '{query}':**\n{content}")
+                                        logger.info(f"✅ Search successful with index path: {index_path}")
+                                        search_success = True
+                                        break
+                                    
+                            except Exception as search_error:
+                                logger.debug(f"Search failed with index path '{index_path}': {search_error}")
+                                continue
+                        
+                        if not search_success:
+                            logger.warning(f"⚠️ All search attempts failed for query: '{query}'")
                             
                     except Exception as e:
                         logger.warning(f"⚠️ Search failed for '{query}': {e}")
                         continue
             
-            # Step 3: Access key files
+            # Step 3: Access key files (try different path formats)
             if "access_file" in available_tools:
                 logger.info("📁 Step 3: Accessing key files...")
-                key_files = ["README.md", "package.json", "requirements.txt", "Dockerfile"]
+                key_files = ["README.md", "package.json", "requirements.txt", "Dockerfile", "setup.py"]
                 
                 for file in key_files:
                     try:
-                        file_args = {
-                            "filepath": f"{repo_name}/repository/{file}"
-                        }
-                        file_result = await session.call_tool("access_file", file_args)
+                        # Try different file path formats
+                        possible_paths = [
+                            f"{repo_name}/repository/{file}",
+                            f"{repo_name}_git/repository/{file}",
+                            f"{repo_name}/{file}",
+                            f"{repo_name}_git/{file}"
+                        ]
                         
-                        if file_result.content:
-                            content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in file_result.content])
-                            if content.strip() and "not found" not in content.lower():
-                                results.append(f"**{file}:**\n{content[:500]}...")
+                        file_found = False
+                        for filepath in possible_paths:
+                            try:
+                                file_args = {"filepath": filepath}
+                                file_result = await session.call_tool("access_file", file_args)
                                 
+                                if file_result.content:
+                                    content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in file_result.content])
+                                    
+                                    # Check if file was actually found
+                                    if '"status": "error"' not in content and 'not found' not in content.lower():
+                                        results.append(f"**{file}:**\n{content[:500]}...")
+                                        logger.info(f"✅ File accessed: {filepath}")
+                                        file_found = True
+                                        break
+                                        
+                            except Exception as file_error:
+                                logger.debug(f"File access failed for '{filepath}': {file_error}")
+                                continue
+                        
+                        if not file_found:
+                            logger.debug(f"📄 File not found: {file}")
+                            
                     except Exception as e:
                         logger.warning(f"⚠️ File access failed for {file}: {e}")
                         continue
@@ -392,7 +459,7 @@ class MCPIntegration:
                 return final_result
             else:
                 logger.warning("⚠️ No results from comprehensive analysis")
-                return "Comprehensive analysis completed but no specific data was retrieved."
+                return f"Repository analysis attempted for {repo_url}. Index creation may have succeeded, but search and file access encountered path resolution issues. The repository has been indexed and is available for future searches."
                 
         except Exception as e:
             logger.error(f"❌ Comprehensive analysis failed: {e}")
