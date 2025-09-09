@@ -113,47 +113,90 @@ def render_main_interface():
     
     # Check if agent needs initialization
     if not st.session_state.agent_initialized or not st.session_state.agent_manager:
-        st.info("🚀 Click the button below to initialize the AI agent and connect to services.")
+        st.markdown("### 🚀 Getting Started")
+        st.markdown("""
+        **Steps to use the Git Repository Research Assistant:**
         
-        if st.button("Initialize Agent", type="primary"):
+        1. **Optional:** Add your GitHub access token in the sidebar for private repository access
+        2. **Initialize** the AI agent by clicking the button below
+        3. **Enter** a GitHub repository URL (optional) and your question
+        4. **Analyze** and get comprehensive insights powered by Amazon Nova Pro
+        """)
+        
+        if st.button("Initialize Agent", type="primary", use_container_width=True):
             initialize_agent()
         
         # Show token requirement message
         if not st.session_state.github_token:
-            st.warning("⚠️ For full functionality, please provide a GitHub access token in the sidebar.")
+            st.info("💡 **Tip:** Add a GitHub access token in the sidebar to analyze private repositories and get enhanced functionality.")
         
         return
     
     # Main query interface
-    st.subheader("Ask about Git repositories")
+    st.subheader("🔍 Git Repository Research")
     
-    # Example queries
-    with st.expander("💡 Example Queries"):
-        st.markdown("""
-        - Analyze the structure of repository https://github.com/user/repo
-        - What are the main dependencies in this project?
-        - Show me the recent commit activity and contributors
-        - What security issues might exist in this codebase?
-        - Compare the architecture of two similar repositories
-        - What are the most active files in this repository?
-        """)
-    
-    # Query input
-    query = st.text_area(
-        "Enter your question about Git repositories:",
-        height=100,
-        placeholder="e.g., Analyze the repository structure of https://github.com/microsoft/vscode"
+    # Repository URL input
+    st.markdown("### 📂 Repository to Analyze")
+    repo_url = st.text_input(
+        "GitHub Repository URL (optional)",
+        placeholder="https://github.com/owner/repository-name",
+        help="Enter the GitHub repository URL you want to analyze. Leave empty for general questions."
     )
     
+    # Question input
+    st.markdown("### ❓ Your Question")
+    
+    # Example queries
+    with st.expander("💡 Example Questions"):
+        st.markdown("""
+        **Repository-specific questions:**
+        - Analyze the structure and architecture of this repository
+        - What are the main dependencies and technologies used?
+        - Show me the recent commit activity and top contributors
+        - What security vulnerabilities or issues might exist?
+        - How is the code organized and what patterns are used?
+        - What is the development activity and project health?
+        
+        **General questions:**
+        - How do I analyze repository dependencies for security issues?
+        - What are best practices for repository structure analysis?
+        - How can I assess code quality in a large repository?
+        """)
+    
+    # Build the full query
+    base_query = st.text_area(
+        "Enter your question:",
+        height=100,
+        placeholder="e.g., What is the overall architecture and how is the code organized?"
+    )
+    
+    # Combine repo URL and query if both provided
+    if repo_url and base_query:
+        query = f"Repository: {repo_url}\n\nQuestion: {base_query}"
+        st.info(f"🎯 **Analysis Target:** {repo_url}")
+    elif base_query:
+        query = base_query
+    else:
+        query = ""
+    
     # Submit button
-    col1, col2 = st.columns([1, 4])
+    col1, col2, col3 = st.columns([2, 2, 3])
+    
     with col1:
-        submit_button = st.button("🔍 Analyze", type="primary", disabled=not query.strip())
+        submit_button = st.button("🔍 Analyze Repository", type="primary", disabled=not query.strip())
     
     with col2:
         if st.button("🔄 Reinitialize Agent"):
             st.session_state.agent_initialized = False
             st.rerun()
+    
+    with col3:
+        if repo_url and base_query:
+            st.success("✅ Ready to analyze specific repository")
+        elif base_query:
+            st.info("ℹ️ General repository question")
+        else:
+            st.warning("⚠️ Please enter a question")
     
     # Process query
     if submit_button and query.strip():
