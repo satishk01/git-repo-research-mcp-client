@@ -193,13 +193,20 @@ Provide accurate analysis based on the repository data and research tools availa
                         logger.info("🔍 Running additional targeted searches...")
                         
                         # Try a few specific tool calls for additional insights
+                        # Note: The MCP integration now stores the successful index name from comprehensive analysis
                         additional_tools = ['search_research_repository', 'access_file']
                         for tool_name in additional_tools[:2]:  # Limit to 2 additional tools
                             try:
                                 additional_result = await self.mcp_integration.call_tool(tool_name, tool_args)
-                                if additional_result and len(additional_result) > 100:
+                                
+                                # Check if we got real data (not error messages)
+                                if (additional_result and len(additional_result) > 100 and 
+                                    '"results": []' not in additional_result and 
+                                    '"status": "error"' not in additional_result):
                                     tool_results.append(f"**{tool_name}**: {additional_result}")
                                     logger.info(f"✅ {tool_name}: Got additional data ({len(additional_result)} chars)")
+                                else:
+                                    logger.info(f"ℹ️ {tool_name}: No additional data or errors encountered")
                             except Exception as e:
                                 logger.warning(f"⚠️ Additional tool {tool_name} failed: {str(e)}")
                                 continue

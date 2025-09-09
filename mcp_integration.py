@@ -21,6 +21,7 @@ class MCPIntegration:
         self._connected = False
         self._public_mode = False
         self._mcp_available = False
+        self._last_successful_index_name = None  # Store successful index name
         
     async def setup_client(self):
         """Set up MCP client connection to awslabs.git-repo-research-mcp-server."""
@@ -261,9 +262,10 @@ class MCPIntegration:
                             "embedding_model": "amazon.titan-embed-text-v2:0"
                         }
                     elif actual_tool_name == "search_research_repository":
-                        # For search, try the most likely index path format
+                        # Use the last successful index name if available, otherwise try common formats
+                        index_path = self._last_successful_index_name or f"{repo_name}_git"
                         tool_args = {
-                            "index_path": f"{repo_name}_git",  # This seems to be the format used
+                            "index_path": index_path,
                             "query": "repository structure architecture dependencies",
                             "limit": 5
                         }
@@ -276,9 +278,10 @@ class MCPIntegration:
                             "num_results": 3
                         }
                     elif actual_tool_name == "access_file":
-                        # For file access, try the most likely path format
+                        # Use the last successful index name if available, otherwise try common formats
+                        index_name = self._last_successful_index_name or f"{repo_name}_git"
                         tool_args = {
-                            "filepath": f"{repo_name}_git/repository/README.md"
+                            "filepath": f"{index_name}/repository/README.md"
                         }
                     else:
                         tool_args = {
@@ -353,6 +356,7 @@ class MCPIntegration:
                                 if 'index_path' in result_data:
                                     actual_index_path = result_data['index_path']
                                     repo_name = actual_index_path.split('/')[-1]
+                                    self._last_successful_index_name = repo_name  # Store for later use
                                     logger.info(f"📝 Extracted index name from result: {repo_name}")
                         except:
                             pass  # Continue with original repo_name
@@ -397,6 +401,9 @@ class MCPIntegration:
                                     if '"results": []' not in content and 'Error searching' not in content:
                                         results.append(f"**Search Results for '{query}':**\n{content}")
                                         logger.info(f"✅ Search successful with index path: {index_path}")
+                                        # Store the successful index name for future use
+                                        if not self._last_successful_index_name:
+                                            self._last_successful_index_name = index_path
                                         search_success = True
                                         break
                                     
@@ -439,6 +446,10 @@ class MCPIntegration:
                                     if '"status": "error"' not in content and 'not found' not in content.lower():
                                         results.append(f"**{file}:**\n{content[:500]}...")
                                         logger.info(f"✅ File accessed: {filepath}")
+                                        # Store the successful index name for future use
+                                        if not self._last_successful_index_name:
+                                            index_name_from_path = filepath.split('/')[0]
+                                            self._last_successful_index_name = index_name_from_path
                                         file_found = True
                                         break
                                         
