@@ -231,10 +231,10 @@ class MCPIntegration:
                     # Initialize the session
                     await session.initialize()
                     
-                    # Prepare tool arguments
-                    tool_args = {
-                        "repository_url": repo_url
-                    }
+                    # First, list the actual available tools from the server
+                    tools_result = await session.list_tools()
+                    available_tools = [tool.name for tool in tools_result.tools]
+                    logger.info(f"🔍 Available MCP tools: {available_tools}")
                     
                     # Map our tool names to actual MCP server tool names
                     mcp_tool_mapping = {
@@ -247,6 +247,20 @@ class MCPIntegration:
                     }
                     
                     actual_tool_name = mcp_tool_mapping.get(tool_name, tool_name)
+                    
+                    # Check if the tool exists, if not use the first available tool
+                    if actual_tool_name not in available_tools:
+                        if available_tools:
+                            logger.warning(f"⚠️ Tool '{actual_tool_name}' not found. Using '{available_tools[0]}' instead")
+                            actual_tool_name = available_tools[0]
+                        else:
+                            logger.error("❌ No tools available from MCP server")
+                            return await self._fallback_analysis(repo_url, repo_type, tool_name)
+                    
+                    # Prepare tool arguments
+                    tool_args = {
+                        "repository_url": repo_url
+                    }
                     
                     # Call the tool
                     logger.info(f"🔧 Calling MCP tool: {actual_tool_name} with args: {tool_args}")
