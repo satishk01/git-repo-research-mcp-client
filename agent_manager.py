@@ -56,68 +56,41 @@ class AgentManager:
             raise
     
     async def _find_and_test_nova_model(self):
-        """Find and test the correct Nova Pro model ID."""
-        # Different possible Nova Pro model IDs to try
-        possible_model_ids = [
-            "us.amazon.nova-pro-v1:0",
-            "amazon.nova-pro-v1:0", 
-            "nova-pro-v1:0",
-            "us.amazon.nova-lite-v1:0",  # Fallback to Nova Lite
-            "amazon.nova-lite-v1:0"
-        ]
+        """Find and test Nova Pro model with correct API format."""
+        # Use Nova Pro model directly
+        model_id = "amazon.nova-pro-v1:0"
         
-        # First, try to list available models to see what's actually available
         try:
-            bedrock_client = boto3.client('bedrock', region_name=Config.BEDROCK_REGION)
-            response = bedrock_client.list_foundation_models()
-            available_models = [model['modelId'] for model in response.get('modelSummaries', [])]
-            logger.info(f"Available models: {available_models}")
+            logger.info(f"Testing Nova Pro model: {model_id}")
             
-            # Filter for Nova models
-            nova_models = [model for model in available_models if 'nova' in model.lower()]
-            logger.info(f"Available Nova models: {nova_models}")
-            
-            if nova_models:
-                # Use the first available Nova model
-                Config.BEDROCK_MODEL_ID = nova_models[0]
-                logger.info(f"Using Nova model: {Config.BEDROCK_MODEL_ID}")
-            
-        except Exception as e:
-            logger.warning(f"Could not list available models: {str(e)}")
-        
-        # Test each possible model ID
-        for model_id in possible_model_ids:
-            try:
-                logger.info(f"Testing model: {model_id}")
-                
-                test_body = {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [{"text": "Hello, this is a test."}]
-                        }
-                    ],
-                    "max_tokens": 10,
+            # Nova models use a different API format - no max_tokens in the body
+            test_body = {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"text": "Hello, this is a test."}]
+                    }
+                ],
+                "inferenceConfig": {
+                    "max_new_tokens": 10,
                     "temperature": 0.1
                 }
-                
-                response = self.bedrock_client.invoke_model(
-                    modelId=model_id,
-                    body=json.dumps(test_body),
-                    contentType="application/json"
-                )
-                
-                # If successful, update the config and break
-                Config.BEDROCK_MODEL_ID = model_id
-                logger.info(f"✅ Successfully connected to model: {model_id}")
-                return
-                
-            except Exception as e:
-                logger.warning(f"❌ Model {model_id} failed: {str(e)}")
-                continue
-        
-        # If we get here, none of the models worked
-        raise Exception(f"Could not access any Nova models. Please check your IAM permissions for Bedrock models in region {Config.BEDROCK_REGION}")
+            }
+            
+            response = self.bedrock_client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(test_body),
+                contentType="application/json"
+            )
+            
+            # If successful, update the config
+            Config.BEDROCK_MODEL_ID = model_id
+            logger.info(f"✅ Successfully connected to Nova Pro: {model_id}")
+            return
+            
+        except Exception as e:
+            logger.error(f"❌ Nova Pro model {model_id} failed: {str(e)}")
+            raise Exception(f"Could not access Nova Pro model. Error: {str(e)}")
     
     def _create_system_prompt(self) -> str:
         """Create system prompt for the Git Repository Research agent."""
@@ -188,8 +161,9 @@ Please provide detailed, actionable insights based on your expertise in reposito
             raise
     
     async def _call_bedrock(self, prompt: str) -> str:
-        """Call Amazon Nova Pro via Bedrock."""
+        """Call Amazon Nova Pro via Bedrock with correct API format."""
         try:
+            # Nova models use inferenceConfig instead of direct max_tokens
             body = {
                 "messages": [
                     {
@@ -197,8 +171,10 @@ Please provide detailed, actionable insights based on your expertise in reposito
                         "content": [{"text": prompt}]
                     }
                 ],
-                "max_tokens": Config.MAX_TOKENS,
-                "temperature": Config.TEMPERATURE
+                "inferenceConfig": {
+                    "max_new_tokens": Config.MAX_TOKENS,
+                    "temperature": Config.TEMPERATURE
+                }
             }
             
             response = self.bedrock_client.invoke_model(
