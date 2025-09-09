@@ -45,12 +45,18 @@ def render_sidebar():
         
         # GitHub Token Input
         st.subheader("GitHub Authentication")
+        st.markdown("**For Private Repositories Only**")
         github_token = st.text_input(
             "GitHub Access Token",
             type="password",
             value=st.session_state.github_token,
-            help="Enter your GitHub personal access token for repository access"
+            help="Required only for private repositories. Public repositories don't need authentication."
         )
+        
+        if not github_token:
+            st.info("💡 **Public repositories only** - Add token for private repo access")
+        else:
+            st.success("🔑 **Token configured** - Can access private repositories")
         
         if github_token != st.session_state.github_token:
             st.session_state.github_token = github_token
@@ -65,12 +71,17 @@ def render_sidebar():
             st.write("🤖 Agent:", "✅ Ready" if status["agent_initialized"] else "❌ Not Ready")
             st.write("🧠 Bedrock:", "✅ Connected" if status["bedrock_model"] else "❌ Disconnected")
             st.write("🔧 MCP Server:", "✅ Connected" if status["mcp_connected"] else "❌ Disconnected")
-            st.write("🔑 GitHub Token:", "✅ Set" if status["github_token_set"] else "❌ Not Set")
+            
+            # Repository access status
+            if status["github_token_set"]:
+                st.write("📂 Repository Access:", "✅ Public + Private")
+            else:
+                st.write("📂 Repository Access:", "🌐 Public Only")
         else:
             st.write("🤖 Agent: ❌ Not Initialized")
             st.write("🧠 Bedrock: ❌ Not Connected")
             st.write("🔧 MCP Server: ❌ Not Connected")
-            st.write("🔑 GitHub Token: ❌ Not Set")
+            st.write("📂 Repository Access: ❌ Not Available")
         
         # Available Tools
         if st.session_state.current_tools:
@@ -124,18 +135,24 @@ def render_main_interface():
         st.markdown("""
         **Steps to use the Git Repository Research Assistant:**
         
-        1. **Optional:** Add your GitHub access token in the sidebar for private repository access
-        2. **Initialize** the AI agent by clicking the button below
-        3. **Enter** a GitHub repository URL (optional) and your question
+        1. **Initialize** the AI agent by clicking the button below
+        2. **Choose** repository type: Public (no token needed) or Private (requires token)
+        3. **Enter** a GitHub repository URL and your research question
         4. **Analyze** and get comprehensive insights powered by Amazon Nova Pro
+        
+        **Repository Access:**
+        - 🌐 **Public repositories**: No authentication required
+        - 🔒 **Private repositories**: GitHub token required (add in sidebar)
         """)
         
         if st.button("Initialize Agent", type="primary", use_container_width=True):
             initialize_agent()
         
-        # Show token requirement message
+        # Show repository access capabilities
         if not st.session_state.github_token:
-            st.info("💡 **Tip:** Add a GitHub access token in the sidebar to analyze private repositories and get enhanced functionality.")
+            st.info("🌐 **Current Access:** Public repositories only. Add a GitHub token in the sidebar for private repository access.")
+        else:
+            st.success("🔑 **Full Access:** Can analyze both public and private repositories.")
         
         # Add manual refresh option if agent was initialized but interface didn't update
         if st.session_state.agent_initialized:
@@ -150,11 +167,33 @@ def render_main_interface():
     
     # Repository URL input
     st.markdown("### 📂 Repository to Analyze")
-    repo_url = st.text_input(
-        "GitHub Repository URL (optional)",
-        placeholder="https://github.com/owner/repository-name",
-        help="Enter the GitHub repository URL you want to analyze. Leave empty for general questions."
+    
+    # Repository type selection (more prominent)
+    st.markdown("**Repository Access Type:**")
+    repo_type = st.radio(
+        "Select repository type:",
+        ["Public", "Private"],
+        help="Choose 'Public' for repositories that don't require authentication, 'Private' for repositories that need a GitHub token",
+        horizontal=True
     )
+    
+    # Repository URL input
+    repo_url = st.text_input(
+        "GitHub Repository URL",
+        placeholder="https://github.com/owner/repository-name",
+        help="Enter the GitHub repository URL you want to analyze"
+    )
+    
+    # Show appropriate messages based on repository type
+    if repo_type == "Private":
+        if not st.session_state.github_token:
+            st.error("🔒 **Private Repository Selected:** A GitHub access token is required. Please add one in the sidebar.")
+        else:
+            st.success("🔒 **Private Repository:** GitHub token configured - ready for private repository access.")
+    else:  # Public
+        st.info("🌐 **Public Repository:** No GitHub token required - will access repository data directly.")
+        if st.session_state.github_token:
+            st.info("💡 **Note:** GitHub token is set but not needed for public repositories.")
     
     # Question input
     st.markdown("### ❓ Your Question")
@@ -162,7 +201,7 @@ def render_main_interface():
     # Example queries
     with st.expander("💡 Example Questions"):
         st.markdown("""
-        **Repository-specific questions:**
+        **Public Repository Analysis:**
         - Analyze the structure and architecture of this repository
         - What are the main dependencies and technologies used?
         - Show me the recent commit activity and top contributors
@@ -170,10 +209,16 @@ def render_main_interface():
         - How is the code organized and what patterns are used?
         - What is the development activity and project health?
         
-        **General questions:**
+        **Private Repository Analysis:**
+        - (Same questions as above, but requires GitHub token)
+        - Analyze internal code patterns and proprietary implementations
+        - Review private dependency usage and security concerns
+        
+        **General Repository Research:**
         - How do I analyze repository dependencies for security issues?
         - What are best practices for repository structure analysis?
         - How can I assess code quality in a large repository?
+        - What tools are best for repository analysis and research?
         """)
     
     # Build the full query
@@ -185,8 +230,10 @@ def render_main_interface():
     
     # Combine repo URL and query if both provided
     if repo_url and base_query:
-        query = f"Repository: {repo_url}\n\nQuestion: {base_query}"
-        st.info(f"🎯 **Analysis Target:** {repo_url}")
+        # Include repository type and token availability in the query
+        token_status = "with_token" if st.session_state.github_token else "no_token"
+        query = f"Repository: {repo_url}\nType: {repo_type}\nToken: {token_status}\nQuestion: {base_query}"
+        st.info(f"🎯 **Analysis Target:** {repo_url} ({repo_type})")
     elif base_query:
         query = base_query
     else:
@@ -205,7 +252,12 @@ def render_main_interface():
     
     with col3:
         if repo_url and base_query:
-            st.success("✅ Ready to analyze specific repository")
+            if repo_type == "Private" and not st.session_state.github_token:
+                st.error("❌ GitHub token required for private repos")
+            elif repo_type == "Public":
+                st.success("✅ Ready to analyze public repository")
+            else:
+                st.success("✅ Ready to analyze private repository")
         elif base_query:
             st.info("ℹ️ General repository question")
         else:

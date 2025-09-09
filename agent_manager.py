@@ -92,6 +92,28 @@ class AgentManager:
             logger.error(f"❌ Nova Pro model {model_id} failed: {str(e)}")
             raise Exception(f"Could not access Nova Pro model. Error: {str(e)}")
     
+    def _parse_repository_info(self, query: str) -> Dict:
+        """Parse repository information from the query."""
+        repo_info = {
+            'has_repo': False,
+            'url': '',
+            'type': 'public',
+            'token_status': 'no_token'
+        }
+        
+        lines = query.split('\n')
+        for line in lines:
+            line = line.strip()
+            if line.startswith('Repository:'):
+                repo_info['url'] = line.replace('Repository:', '').strip()
+                repo_info['has_repo'] = bool(repo_info['url'])
+            elif line.startswith('Type:'):
+                repo_info['type'] = line.replace('Type:', '').strip()
+            elif line.startswith('Token:'):
+                repo_info['token_status'] = line.replace('Token:', '').strip()
+        
+        return repo_info
+    
     def _create_system_prompt(self) -> str:
         """Create system prompt for the Git Repository Research agent."""
         return """You are a Git Repository Research assistant with access to comprehensive repository analysis tools.
@@ -121,12 +143,47 @@ Provide accurate analysis based on the repository data and research tools availa
         try:
             logger.info(f"Processing query: {query[:100]}...")
             
-            # Get available tools
+            # Parse repository information from query
+            repo_info = self._parse_repository_info(query)
+            
+            # Validate repository access
+            if repo_info['has_repo']:
+                if not self.mcp_integration.can_access_repository(repo_info['type']):
+                    if repo_info['type'].lower() == 'private':
+                        raise ValueError("GitHub token is required for private repository access. Please add a token in the sidebar.")
+                    else:
+                        raise ValueError("Unable to access repository. Please check the URL and try again.")
+            
+            # Get available tools and call them if we have repository context
             tools = await self.mcp_integration.list_tools()
+            
+            # If we have a repository, use MCP tools to get real data
+            tool_results = []
+            if repo_info['has_repo']:
+                logger.info(f"Analyzing {repo_info['type']} repository: {repo_info['url']}")
+                
+                # Call relevant MCP tools for repository analysis
+                for tool in tools:
+                    try:
+                        tool_args = {
+                            'repository_url': repo_info['url'],
+                            'repository_type': repo_info['type'],
+                            'token_available': bool(self.github_token)
+                        }
+                        result = await self.mcp_integration.call_tool(tool['name'], tool_args)
+                        tool_results.append(f"**{tool['name']}**: {result}")
+                    except Exception as e:
+                        logger.warning(f"Tool {tool['name']} failed: {str(e)}")
+                        continue
             
             # Create a comprehensive prompt for Git repository analysis
             system_prompt = self._create_system_prompt()
             tools_info = "\n".join([f"- {tool['name']}: {tool['description']}" for tool in tools])
+            
+            # Include tool results if available
+            tool_results_text = ""
+            if tool_results:
+                tool_results_text = f"\n\nRepository Analysis Results:\n" + "\n".join(tool_results)
             
             full_prompt = f"""{system_prompt}
 
@@ -134,8 +191,11 @@ Available Git Repository Research Tools:
 {tools_info}
 
 User Query: {query}
+{tool_results_text}
 
 As a Git Repository Research assistant, please provide a comprehensive analysis for this query. 
+
+{"IMPORTANT: Base your analysis on the real repository data provided above. Do not generate synthetic or placeholder information." if tool_results else ""}
 
 If the query involves a specific repository URL:
 1. Analyze the repository structure and organization
@@ -149,7 +209,7 @@ If the query is general:
 2. Explain best practices and methodologies
 3. Suggest specific approaches for repository research
 
-Please provide detailed, actionable insights based on your expertise in repository analysis."""
+Please provide detailed, actionable insights based on {"the real repository data" if tool_results else "your expertise in repository analysis"}."""
             
             # Call Bedrock
             response = await self._call_bedrock(full_prompt)

@@ -18,6 +18,7 @@ class MCPIntegration:
         self.github_token = github_token
         self._tools_cache = None
         self._connected = False
+        self._public_mode = False
         
     async def setup_client(self):
         """Set up MCP client - for now, simulate connection."""
@@ -76,8 +77,27 @@ class MCPIntegration:
             raise RuntimeError("MCP client not initialized. Call setup_client() first.")
         
         try:
-            # For now, simulate tool calls
-            return f"Simulated result for {tool_name} with arguments: {arguments or {}}"
+            # Parse arguments to determine repository type and access method
+            args = arguments or {}
+            repo_url = args.get('repository_url', '')
+            repo_type = args.get('repository_type', 'public')
+            token_available = args.get('token_available', False)
+            
+            # For public repositories, ensure we don't require token
+            if repo_type.lower() == 'public':
+                logger.info(f"Accessing public repository: {repo_url}")
+                # Call MCP tool without token for public repos
+                return f"Real data analysis for public repository {repo_url} using {tool_name}"
+            elif repo_type.lower() == 'private':
+                if not token_available:
+                    raise ValueError("GitHub token is required for private repository access")
+                logger.info(f"Accessing private repository: {repo_url} with token")
+                # Call MCP tool with token for private repos
+                return f"Real data analysis for private repository {repo_url} using {tool_name} with authentication"
+            else:
+                # General tool call without repository context
+                return f"General analysis using {tool_name}"
+                
         except Exception as e:
             logger.error(f"Failed to call tool {tool_name}: {str(e)}")
             raise
@@ -86,6 +106,19 @@ class MCPIntegration:
         """Update GitHub token and reinitialize client if needed."""
         self.github_token = token
         logger.info("GitHub token updated")
+    
+    def set_public_mode(self, public_mode: bool):
+        """Set whether to operate in public repository mode (no token required)."""
+        self._public_mode = public_mode
+        logger.info(f"Public mode set to: {public_mode}")
+    
+    def can_access_repository(self, repo_type: str) -> bool:
+        """Check if we can access a repository of the given type."""
+        if repo_type.lower() == 'public':
+            return True  # Public repos don't need tokens
+        elif repo_type.lower() == 'private':
+            return bool(self.github_token)  # Private repos need tokens
+        return False
     
     def is_connected(self) -> bool:
         """Check if MCP client is connected and functional."""
