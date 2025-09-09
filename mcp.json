@@ -1,0 +1,53 @@
+{
+  "mcpServers": {
+    "awslabs.core-mcp-server": {
+        "command": "uvx",
+        "args": ["awslabs.core-mcp-server@latest"],
+        "env": {
+          "FASTMCP_LOG_LEVEL": "ERROR",
+          "MCP_SETTINGS_PATH": "path to your mcp settings file"
+        }
+    },
+    "awslabs.aws-documentation-mcp-server": {
+        "command": "uvx",
+        "args": ["awslabs.aws-documentation-mcp-server@latest"],
+        "env": {
+          "FASTMCP_LOG_LEVEL": "ERROR"
+        },
+        "disabled": false,
+        "autoApprove": []
+    },
+    "aws-knowledge-mcp-server": {
+        "command": "uvx",
+        "args": [
+            "mcp-proxy",
+            "--transport",
+            "streamablehttp",
+            "https://knowledge-mcp.global.api.aws"
+        ]
+    },
+    "awslabs.cdk-mcp-server": {
+      "command": "uvx",
+      "args": ["awslabs.cdk-mcp-server@latest"],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "awslabs.git-repo-research-mcp-server": {
+          "command": "uvx",
+          "args": ["awslabs.git-repo-research-mcp-server@latest"],
+          "env": {
+            "AWS_PROFILE": "default",
+            "AWS_REGION": "us-east-1",
+            "FASTMCP_LOG_LEVEL": "ERROR",
+            "GITHUB_TOKEN": ""
+          },
+          "disabled": false,
+          "autoApprove": []
+    },
+    "strands": {
+      "command": "uvx",
+      "args": ["strands-agents-mcp-server"]
+    }
+  }
+}
