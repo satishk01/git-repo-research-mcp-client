@@ -160,21 +160,37 @@ Provide accurate analysis based on the repository data and research tools availa
             # If we have a repository, use MCP tools to get real data
             tool_results = []
             if repo_info['has_repo']:
-                logger.info(f"Analyzing {repo_info['type']} repository: {repo_info['url']}")
+                logger.info(f"🔍 Analyzing {repo_info['type']} repository: {repo_info['url']}")
+                logger.info(f"🔑 GitHub token available: {bool(self.github_token)}")
                 
                 # Call relevant MCP tools for repository analysis
-                for tool in tools:
+                for i, tool in enumerate(tools[:3]):  # Limit to first 3 tools to avoid timeout
                     try:
+                        logger.info(f"🛠️ Calling tool {i+1}/{min(3, len(tools))}: {tool['name']}")
+                        
                         tool_args = {
                             'repository_url': repo_info['url'],
                             'repository_type': repo_info['type'],
                             'token_available': bool(self.github_token)
                         }
+                        
                         result = await self.mcp_integration.call_tool(tool['name'], tool_args)
+                        
+                        # Check if we got real data or fallback
+                        if "Real Repository Data from MCP Server" in result:
+                            logger.info(f"✅ {tool['name']}: Got real MCP data ({len(result)} chars)")
+                        elif "Manual Analysis Steps" in result or "Prerequisites for" in result:
+                            logger.info(f"📋 {tool['name']}: Using fallback guidance")
+                        else:
+                            logger.info(f"ℹ️ {tool['name']}: Basic analysis returned")
+                        
                         tool_results.append(f"**{tool['name']}**: {result}")
+                        
                     except Exception as e:
-                        logger.warning(f"Tool {tool['name']} failed: {str(e)}")
+                        logger.warning(f"❌ Tool {tool['name']} failed: {str(e)}")
                         continue
+                
+                logger.info(f"📊 Repository analysis completed: {len(tool_results)} tools executed")
             
             # Create a comprehensive prompt for Git repository analysis
             system_prompt = self._create_system_prompt()
@@ -185,6 +201,9 @@ Provide accurate analysis based on the repository data and research tools availa
             if tool_results:
                 tool_results_text = f"\n\nRepository Analysis Results:\n" + "\n".join(tool_results)
             
+            # Determine if we have real MCP data
+            has_real_data = any("Real Repository Data from MCP Server" in result for result in tool_results)
+            
             full_prompt = f"""{system_prompt}
 
 Available Git Repository Research Tools:
@@ -193,23 +212,22 @@ Available Git Repository Research Tools:
 User Query: {query}
 {tool_results_text}
 
-As a Git Repository Research assistant, please provide a comprehensive analysis for this query. 
+As a Git Repository Research assistant, please provide a comprehensive analysis for this query.
 
-{"IMPORTANT: Base your analysis on the real repository data provided above. Do not generate synthetic or placeholder information." if tool_results else ""}
+{"🔍 REAL DATA ANALYSIS: The tool results above contain actual repository data from MCP server. Base your analysis on this real data and provide specific insights." if has_real_data else ""}
 
-If the query involves a specific repository URL:
-1. Analyze the repository structure and organization
-2. Examine the codebase for patterns, architecture, and quality
-3. Review dependencies and potential security concerns
-4. Assess development activity and contributor patterns
-5. Provide actionable insights and recommendations
+{"📋 GUIDANCE MODE: MCP server data is not available. Provide expert guidance and manual analysis steps based on the repository information provided." if tool_results and not has_real_data else ""}
 
-If the query is general:
-1. Provide expert guidance on Git repository analysis
-2. Explain best practices and methodologies
-3. Suggest specific approaches for repository research
+{"🎯 GENERAL ANALYSIS: Provide expert guidance on repository analysis methodologies and best practices." if not tool_results else ""}
 
-Please provide detailed, actionable insights based on {"the real repository data" if tool_results else "your expertise in repository analysis"}."""
+Analysis Guidelines:
+1. If real repository data is available, provide specific insights based on actual findings
+2. If only guidance is available, focus on actionable steps and methodologies  
+3. Always be clear about whether insights are based on real data or general guidance
+4. Provide practical, actionable recommendations
+5. Highlight important security, quality, or architectural considerations
+
+Please provide detailed, actionable insights based on the available information."""
             
             # Call Bedrock
             response = await self._call_bedrock(full_prompt)
