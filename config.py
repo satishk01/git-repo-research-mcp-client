@@ -7,7 +7,7 @@ class Config:
     """Configuration settings for the Git Repository Research Streamlit application."""
     
     # AWS Bedrock Configuration
-    BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-west-2")
+    BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
     BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0")
     AWS_PROFILE = os.getenv("AWS_PROFILE", "default")
     
@@ -29,7 +29,7 @@ class Config:
     # MCP Environment Variables
     MCP_ENV_VARS = {
         "AWS_PROFILE": "default",
-        "AWS_REGION": BEDROCK_REGION,
+        "AWS_REGION": "us-east-1",
         "FASTMCP_LOG_LEVEL": "ERROR"
     }
     
