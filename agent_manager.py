@@ -27,11 +27,9 @@ class AgentManager:
     async def initialize_agent(self):
         """Initialize the AI agent with Bedrock model and MCP tools."""
         try:
-            # Create a boto3 session with the specified profile
-            session = boto3.Session(profile_name=Config.AWS_PROFILE)
-            
-            # Initialize Bedrock client with proper session and profile
-            self.bedrock_client = session.client(
+            # For EC2 instance role, use default credentials without specifying profile
+            # This should automatically use the EC2 instance role
+            self.bedrock_client = boto3.client(
                 'bedrock-runtime',
                 region_name=Config.BEDROCK_REGION,
                 config=BotoConfig(
@@ -41,11 +39,10 @@ class AgentManager:
                 )
             )
             
-            # Test the connection by listing available models (optional)
-            logger.info(f"Initializing Bedrock client with profile: {Config.AWS_PROFILE}, region: {Config.BEDROCK_REGION}, model: {Config.BEDROCK_MODEL_ID}")
+            logger.info(f"Initializing Bedrock client with EC2 role, region: {Config.BEDROCK_REGION}")
             
-            # Test Bedrock access
-            await self._test_bedrock_access()
+            # Try to find the correct Nova Pro model ID
+            await self._find_and_test_nova_model()
             
             # Initialize MCP integration
             self.mcp_integration = MCPIntegration(self.github_token)
@@ -58,32 +55,69 @@ class AgentManager:
             logger.error(f"Failed to initialize agent: {str(e)}")
             raise
     
-    async def _test_bedrock_access(self):
-        """Test Bedrock access with a simple call."""
+    async def _find_and_test_nova_model(self):
+        """Find and test the correct Nova Pro model ID."""
+        # Different possible Nova Pro model IDs to try
+        possible_model_ids = [
+            "us.amazon.nova-pro-v1:0",
+            "amazon.nova-pro-v1:0", 
+            "nova-pro-v1:0",
+            "us.amazon.nova-lite-v1:0",  # Fallback to Nova Lite
+            "amazon.nova-lite-v1:0"
+        ]
+        
+        # First, try to list available models to see what's actually available
         try:
-            # Try a simple test call to verify access
-            test_body = {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [{"text": "Hello, this is a test."}]
-                    }
-                ],
-                "max_tokens": 10,
-                "temperature": 0.1
-            }
+            bedrock_client = boto3.client('bedrock', region_name=Config.BEDROCK_REGION)
+            response = bedrock_client.list_foundation_models()
+            available_models = [model['modelId'] for model in response.get('modelSummaries', [])]
+            logger.info(f"Available models: {available_models}")
             
-            response = self.bedrock_client.invoke_model(
-                modelId=Config.BEDROCK_MODEL_ID,
-                body=json.dumps(test_body),
-                contentType="application/json"
-            )
+            # Filter for Nova models
+            nova_models = [model for model in available_models if 'nova' in model.lower()]
+            logger.info(f"Available Nova models: {nova_models}")
             
-            logger.info("✅ Bedrock access test successful")
+            if nova_models:
+                # Use the first available Nova model
+                Config.BEDROCK_MODEL_ID = nova_models[0]
+                logger.info(f"Using Nova model: {Config.BEDROCK_MODEL_ID}")
             
         except Exception as e:
-            logger.error(f"❌ Bedrock access test failed: {str(e)}")
-            raise Exception(f"Bedrock access denied. Please check your IAM permissions for model {Config.BEDROCK_MODEL_ID}: {str(e)}")
+            logger.warning(f"Could not list available models: {str(e)}")
+        
+        # Test each possible model ID
+        for model_id in possible_model_ids:
+            try:
+                logger.info(f"Testing model: {model_id}")
+                
+                test_body = {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"text": "Hello, this is a test."}]
+                        }
+                    ],
+                    "max_tokens": 10,
+                    "temperature": 0.1
+                }
+                
+                response = self.bedrock_client.invoke_model(
+                    modelId=model_id,
+                    body=json.dumps(test_body),
+                    contentType="application/json"
+                )
+                
+                # If successful, update the config and break
+                Config.BEDROCK_MODEL_ID = model_id
+                logger.info(f"✅ Successfully connected to model: {model_id}")
+                return
+                
+            except Exception as e:
+                logger.warning(f"❌ Model {model_id} failed: {str(e)}")
+                continue
+        
+        # If we get here, none of the models worked
+        raise Exception(f"Could not access any Nova models. Please check your IAM permissions for Bedrock models in region {Config.BEDROCK_REGION}")
     
     def _create_system_prompt(self) -> str:
         """Create system prompt for the Git Repository Research agent."""
