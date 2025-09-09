@@ -27,8 +27,11 @@ class AgentManager:
     async def initialize_agent(self):
         """Initialize the AI agent with Bedrock model and MCP tools."""
         try:
-            # Initialize Bedrock client
-            self.bedrock_client = boto3.client(
+            # Create a boto3 session with the specified profile
+            session = boto3.Session(profile_name=Config.AWS_PROFILE)
+            
+            # Initialize Bedrock client with proper session and profile
+            self.bedrock_client = session.client(
                 'bedrock-runtime',
                 region_name=Config.BEDROCK_REGION,
                 config=BotoConfig(
@@ -37,6 +40,12 @@ class AgentManager:
                     retries=dict(max_attempts=Config.MAX_RETRIES, mode="adaptive"),
                 )
             )
+            
+            # Test the connection by listing available models (optional)
+            logger.info(f"Initializing Bedrock client with profile: {Config.AWS_PROFILE}, region: {Config.BEDROCK_REGION}, model: {Config.BEDROCK_MODEL_ID}")
+            
+            # Test Bedrock access
+            await self._test_bedrock_access()
             
             # Initialize MCP integration
             self.mcp_integration = MCPIntegration(self.github_token)
@@ -48,6 +57,33 @@ class AgentManager:
         except Exception as e:
             logger.error(f"Failed to initialize agent: {str(e)}")
             raise
+    
+    async def _test_bedrock_access(self):
+        """Test Bedrock access with a simple call."""
+        try:
+            # Try a simple test call to verify access
+            test_body = {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"text": "Hello, this is a test."}]
+                    }
+                ],
+                "max_tokens": 10,
+                "temperature": 0.1
+            }
+            
+            response = self.bedrock_client.invoke_model(
+                modelId=Config.BEDROCK_MODEL_ID,
+                body=json.dumps(test_body),
+                contentType="application/json"
+            )
+            
+            logger.info("✅ Bedrock access test successful")
+            
+        except Exception as e:
+            logger.error(f"❌ Bedrock access test failed: {str(e)}")
+            raise Exception(f"Bedrock access denied. Please check your IAM permissions for model {Config.BEDROCK_MODEL_ID}: {str(e)}")
     
     def _create_system_prompt(self) -> str:
         """Create system prompt for the Git Repository Research agent."""

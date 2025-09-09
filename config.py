@@ -8,7 +8,8 @@ class Config:
     
     # AWS Bedrock Configuration
     BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-west-2")
-    BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0"
+    BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0")
+    AWS_PROFILE = os.getenv("AWS_PROFILE", "default")
     
     # MCP Server Configuration
     MCP_SERVER_COMMAND = "uvx"
