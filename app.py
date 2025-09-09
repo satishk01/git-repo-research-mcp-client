@@ -99,7 +99,10 @@ def initialize_agent():
             st.session_state.current_tools = asyncio.run(st.session_state.agent_manager.get_available_tools())
             
             st.session_state.agent_initialized = True
-            st.success("✅ Agent initialized successfully!")
+            st.success("✅ Agent initialized successfully! The interface will refresh in a moment...")
+            
+            # Force a rerun to show the main interface
+            st.rerun()
             
     except Exception as e:
         st.error(f"❌ Failed to initialize agent: {str(e)}")
@@ -110,6 +113,10 @@ def render_main_interface():
     """Render the main application interface."""
     st.title(Config.APP_TITLE)
     st.markdown(Config.APP_DESCRIPTION)
+    
+    # Debug information (remove this later)
+    # st.write(f"Debug - agent_initialized: {st.session_state.agent_initialized}")
+    # st.write(f"Debug - agent_manager exists: {st.session_state.agent_manager is not None}")
     
     # Check if agent needs initialization
     if not st.session_state.agent_initialized or not st.session_state.agent_manager:
@@ -129,6 +136,12 @@ def render_main_interface():
         # Show token requirement message
         if not st.session_state.github_token:
             st.info("💡 **Tip:** Add a GitHub access token in the sidebar to analyze private repositories and get enhanced functionality.")
+        
+        # Add manual refresh option if agent was initialized but interface didn't update
+        if st.session_state.agent_initialized:
+            st.warning("⚠️ Agent is initialized but interface didn't refresh. Click below to continue:")
+            if st.button("🔄 Continue to Repository Analysis", type="secondary", use_container_width=True):
+                st.rerun()
         
         return
     
