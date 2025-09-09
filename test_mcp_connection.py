@@ -40,7 +40,7 @@ async def test_mcp_integration():
             print(f"  - {tool['name']}: {tool['description']}")
         
         # Test tool call with public repository
-        print("\n2. Testing tool call with public repository")
+        print("\n2. Testing comprehensive repository analysis")
         print("-" * 50)
         
         test_repo = "https://github.com/microsoft/vscode"
@@ -50,17 +50,36 @@ async def test_mcp_integration():
             'token_available': False
         }
         
-        result = await mcp.call_tool('analyze_repository', tool_args)
+        result = await mcp.call_tool('repository_analysis', tool_args)
         print(f"Tool call result length: {len(result)} characters")
-        print(f"Result preview: {result[:300]}...")
+        print(f"Result preview: {result[:500]}...")
         
         # Check if real data was returned
         if "Real Repository Data from MCP Server" in result:
             print("✅ SUCCESS: Got real data from MCP server!")
+        elif "Repository Indexing:" in result or "Search Results for" in result:
+            print("✅ SUCCESS: Got real repository analysis data!")
         elif "Manual Analysis Steps" in result:
             print("📋 INFO: Got fallback guidance (MCP server not available)")
         else:
             print("❓ UNKNOWN: Unexpected result format")
+            
+        # Test individual MCP tools
+        print("\n2.1. Testing individual MCP tools")
+        print("-" * 30)
+        
+        test_tools = ['create_research_repository', 'search_repos_on_github']
+        for tool_name in test_tools:
+            try:
+                print(f"\nTesting {tool_name}...")
+                result = await mcp.call_tool(tool_name, tool_args)
+                print(f"  Result length: {len(result)} chars")
+                if "Real Repository Data from MCP Server" in result:
+                    print(f"  ✅ {tool_name}: Got real MCP data")
+                else:
+                    print(f"  📋 {tool_name}: Got fallback or no data")
+            except Exception as e:
+                print(f"  ❌ {tool_name}: Failed - {str(e)}")
             
     except Exception as e:
         print(f"❌ ERROR: {str(e)}")

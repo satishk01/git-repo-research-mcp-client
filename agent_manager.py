@@ -163,32 +163,62 @@ Provide accurate analysis based on the repository data and research tools availa
                 logger.info(f"🔍 Analyzing {repo_info['type']} repository: {repo_info['url']}")
                 logger.info(f"🔑 GitHub token available: {bool(self.github_token)}")
                 
-                # Call relevant MCP tools for repository analysis
-                for i, tool in enumerate(tools[:3]):  # Limit to first 3 tools to avoid timeout
-                    try:
-                        logger.info(f"🛠️ Calling tool {i+1}/{min(3, len(tools))}: {tool['name']}")
+                # Use comprehensive repository analysis as the primary tool
+                try:
+                    logger.info("🛠️ Starting comprehensive repository analysis...")
+                    
+                    tool_args = {
+                        'repository_url': repo_info['url'],
+                        'repository_type': repo_info['type'],
+                        'token_available': bool(self.github_token)
+                    }
+                    
+                    # Use the comprehensive analysis tool
+                    result = await self.mcp_integration.call_tool('repository_analysis', tool_args)
+                    
+                    # Check if we got real data or fallback
+                    if "Real Repository Data from MCP Server" in result:
+                        logger.info(f"✅ Comprehensive analysis: Got real MCP data ({len(result)} chars)")
+                    elif "Repository Indexing:" in result or "Search Results for" in result:
+                        logger.info(f"✅ Comprehensive analysis: Got real repository data ({len(result)} chars)")
+                    elif "Manual Analysis Steps" in result or "Prerequisites for" in result:
+                        logger.info(f"📋 Comprehensive analysis: Using fallback guidance")
+                    else:
+                        logger.info(f"ℹ️ Comprehensive analysis: Basic analysis returned")
+                    
+                    tool_results.append(f"**Comprehensive Repository Analysis**: {result}")
+                    
+                    # If comprehensive analysis worked, also try specific searches
+                    if "Repository Indexing:" in result:
+                        logger.info("🔍 Running additional targeted searches...")
                         
-                        tool_args = {
-                            'repository_url': repo_info['url'],
-                            'repository_type': repo_info['type'],
-                            'token_available': bool(self.github_token)
-                        }
-                        
-                        result = await self.mcp_integration.call_tool(tool['name'], tool_args)
-                        
-                        # Check if we got real data or fallback
-                        if "Real Repository Data from MCP Server" in result:
-                            logger.info(f"✅ {tool['name']}: Got real MCP data ({len(result)} chars)")
-                        elif "Manual Analysis Steps" in result or "Prerequisites for" in result:
-                            logger.info(f"📋 {tool['name']}: Using fallback guidance")
-                        else:
-                            logger.info(f"ℹ️ {tool['name']}: Basic analysis returned")
-                        
-                        tool_results.append(f"**{tool['name']}**: {result}")
-                        
-                    except Exception as e:
-                        logger.warning(f"❌ Tool {tool['name']} failed: {str(e)}")
-                        continue
+                        # Try a few specific tool calls for additional insights
+                        additional_tools = ['search_research_repository', 'access_file']
+                        for tool_name in additional_tools[:2]:  # Limit to 2 additional tools
+                            try:
+                                additional_result = await self.mcp_integration.call_tool(tool_name, tool_args)
+                                if additional_result and len(additional_result) > 100:
+                                    tool_results.append(f"**{tool_name}**: {additional_result}")
+                                    logger.info(f"✅ {tool_name}: Got additional data ({len(additional_result)} chars)")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Additional tool {tool_name} failed: {str(e)}")
+                                continue
+                    
+                except Exception as e:
+                    logger.warning(f"❌ Comprehensive analysis failed: {str(e)}")
+                    
+                    # Fallback to individual tool calls
+                    logger.info("🔄 Falling back to individual tool calls...")
+                    for i, tool in enumerate(tools[:2]):  # Limit to first 2 tools
+                        try:
+                            logger.info(f"🛠️ Calling tool {i+1}/2: {tool['name']}")
+                            
+                            result = await self.mcp_integration.call_tool(tool['name'], tool_args)
+                            tool_results.append(f"**{tool['name']}**: {result}")
+                            
+                        except Exception as tool_error:
+                            logger.warning(f"❌ Tool {tool['name']} failed: {str(tool_error)}")
+                            continue
                 
                 logger.info(f"📊 Repository analysis completed: {len(tool_results)} tools executed")
             

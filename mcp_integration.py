@@ -39,32 +39,28 @@ class MCPIntegration:
                 logger.warning("⚠️ MCP server not available - using fallback")
                 return await self._setup_fallback()
             
-            # If MCP is available, set up tools list
+            # If MCP is available, set up tools list with actual MCP server tools
             self._mcp_available = True
             self._tools_cache = [
                 {
-                    "name": "analyze_repository",
-                    "description": "Comprehensive repository analysis including structure, dependencies, and patterns"
+                    "name": "create_research_repository",
+                    "description": "Build a FAISS index for a Git repository for semantic search and analysis"
                 },
                 {
-                    "name": "get_commit_history",
-                    "description": "Retrieve detailed commit history and contributor information"
+                    "name": "search_research_repository", 
+                    "description": "Perform semantic search within an indexed repository to find relevant code and documentation"
                 },
                 {
-                    "name": "analyze_code_quality",
-                    "description": "Analyze code quality, security issues, and best practices"
+                    "name": "search_repos_on_github",
+                    "description": "Search for GitHub repositories based on keywords in AWS organizations"
                 },
                 {
-                    "name": "get_repository_metrics",
-                    "description": "Get repository metrics like file counts, languages, and activity"
+                    "name": "access_file",
+                    "description": "Access file or directory contents from indexed repositories"
                 },
                 {
-                    "name": "analyze_dependencies",
-                    "description": "Analyze project dependencies and potential vulnerabilities"
-                },
-                {
-                    "name": "search_code",
-                    "description": "Search for specific code patterns and implementations"
+                    "name": "repository_analysis",
+                    "description": "Comprehensive repository analysis using indexing and semantic search"
                 }
             ]
             
@@ -236,31 +232,56 @@ class MCPIntegration:
                     available_tools = [tool.name for tool in tools_result.tools]
                     logger.info(f"🔍 Available MCP tools: {available_tools}")
                     
+                    # Implement repository analysis workflow using available MCP tools
+                    if tool_name == "repository_analysis":
+                        return await self._comprehensive_repository_analysis(session, repo_url, available_tools)
+                    
                     # Map our tool names to actual MCP server tool names
                     mcp_tool_mapping = {
-                        "analyze_repository": "analyze_repository",
-                        "get_commit_history": "get_commit_history", 
-                        "analyze_code_quality": "analyze_code_quality",
-                        "get_repository_metrics": "get_repository_metrics",
-                        "analyze_dependencies": "analyze_dependencies",
-                        "search_code": "search_code"
+                        "create_research_repository": "create_research_repository",
+                        "search_research_repository": "search_research_repository", 
+                        "search_repos_on_github": "search_repos_on_github",
+                        "access_file": "access_file"
                     }
                     
                     actual_tool_name = mcp_tool_mapping.get(tool_name, tool_name)
                     
-                    # Check if the tool exists, if not use the first available tool
+                    # Check if the tool exists
                     if actual_tool_name not in available_tools:
-                        if available_tools:
-                            logger.warning(f"⚠️ Tool '{actual_tool_name}' not found. Using '{available_tools[0]}' instead")
-                            actual_tool_name = available_tools[0]
-                        else:
-                            logger.error("❌ No tools available from MCP server")
-                            return await self._fallback_analysis(repo_url, repo_type, tool_name)
+                        logger.warning(f"⚠️ Tool '{actual_tool_name}' not found in available tools: {available_tools}")
+                        return await self._fallback_analysis(repo_url, repo_type, tool_name)
                     
-                    # Prepare tool arguments
-                    tool_args = {
-                        "repository_url": repo_url
-                    }
+                    # Prepare tool arguments based on the specific tool
+                    if actual_tool_name == "create_research_repository":
+                        tool_args = {
+                            "repository_path": repo_url,
+                            "embedding_model": "amazon.titan-embed-text-v2:0"
+                        }
+                    elif actual_tool_name == "search_research_repository":
+                        # For search, we need an index path and query
+                        repo_name = repo_url.split('/')[-1] if '/' in repo_url else repo_url
+                        tool_args = {
+                            "index_path": repo_name,
+                            "query": "repository structure architecture dependencies",
+                            "limit": 10
+                        }
+                    elif actual_tool_name == "search_repos_on_github":
+                        # Extract keywords from repo URL
+                        keywords = repo_url.split('/')[-1].split('-') if '/' in repo_url else [repo_url]
+                        tool_args = {
+                            "keywords": keywords[:3],  # Limit to 3 keywords
+                            "num_results": 5
+                        }
+                    elif actual_tool_name == "access_file":
+                        # For file access, we need a specific file path
+                        repo_name = repo_url.split('/')[-1] if '/' in repo_url else repo_url
+                        tool_args = {
+                            "filepath": f"{repo_name}/repository/README.md"
+                        }
+                    else:
+                        tool_args = {
+                            "repository_url": repo_url
+                        }
                     
                     # Call the tool
                     logger.info(f"🔧 Calling MCP tool: {actual_tool_name} with args: {tool_args}")
@@ -290,6 +311,92 @@ class MCPIntegration:
             logger.error(f"❌ MCP server call failed: {str(e)}")
             logger.error(f"📋 Error details: {type(e).__name__}: {str(e)}")
             return await self._fallback_analysis(repo_url, repo_type, tool_name)
+    
+    async def _comprehensive_repository_analysis(self, session, repo_url: str, available_tools: list) -> str:
+        """Perform comprehensive repository analysis using multiple MCP tools."""
+        try:
+            logger.info(f"🔍 Starting comprehensive analysis of {repo_url}")
+            results = []
+            
+            repo_name = repo_url.split('/')[-1] if '/' in repo_url else repo_url
+            
+            # Step 1: Create research repository index
+            if "create_research_repository" in available_tools:
+                logger.info("📊 Step 1: Creating repository index...")
+                try:
+                    create_args = {
+                        "repository_path": repo_url,
+                        "embedding_model": "amazon.titan-embed-text-v2:0"
+                    }
+                    create_result = await session.call_tool("create_research_repository", create_args)
+                    
+                    if create_result.content:
+                        content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in create_result.content])
+                        results.append(f"**Repository Indexing:**\n{content}")
+                        logger.info("✅ Repository indexed successfully")
+                    
+                except Exception as e:
+                    logger.warning(f"⚠️ Repository indexing failed: {e}")
+                    results.append(f"**Repository Indexing:** Failed - {str(e)}")
+            
+            # Step 2: Search for key information in the repository
+            if "search_research_repository" in available_tools:
+                logger.info("🔍 Step 2: Searching repository content...")
+                search_queries = [
+                    "architecture design patterns structure",
+                    "dependencies requirements packages",
+                    "documentation README getting started"
+                ]
+                
+                for query in search_queries:
+                    try:
+                        search_args = {
+                            "index_path": repo_name,
+                            "query": query,
+                            "limit": 5
+                        }
+                        search_result = await session.call_tool("search_research_repository", search_args)
+                        
+                        if search_result.content:
+                            content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in search_result.content])
+                            results.append(f"**Search Results for '{query}':**\n{content}")
+                            
+                    except Exception as e:
+                        logger.warning(f"⚠️ Search failed for '{query}': {e}")
+                        continue
+            
+            # Step 3: Access key files
+            if "access_file" in available_tools:
+                logger.info("📁 Step 3: Accessing key files...")
+                key_files = ["README.md", "package.json", "requirements.txt", "Dockerfile"]
+                
+                for file in key_files:
+                    try:
+                        file_args = {
+                            "filepath": f"{repo_name}/repository/{file}"
+                        }
+                        file_result = await session.call_tool("access_file", file_args)
+                        
+                        if file_result.content:
+                            content = "".join([str(c.text) if hasattr(c, 'text') else str(c) for c in file_result.content])
+                            if content.strip() and "not found" not in content.lower():
+                                results.append(f"**{file}:**\n{content[:500]}...")
+                                
+                    except Exception as e:
+                        logger.warning(f"⚠️ File access failed for {file}: {e}")
+                        continue
+            
+            if results:
+                final_result = "\n\n".join(results)
+                logger.info(f"✅ Comprehensive analysis completed ({len(final_result)} chars)")
+                return final_result
+            else:
+                logger.warning("⚠️ No results from comprehensive analysis")
+                return "Comprehensive analysis completed but no specific data was retrieved."
+                
+        except Exception as e:
+            logger.error(f"❌ Comprehensive analysis failed: {e}")
+            return f"Comprehensive analysis failed: {str(e)}"
     
     async def _fallback_analysis(self, repo_url: str, repo_type: str, tool_name: str) -> str:
         """Provide fallback analysis when MCP tools are not available."""
