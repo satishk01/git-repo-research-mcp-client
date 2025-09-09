@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import logging
+import asyncio
+import json
 from typing import Optional, List, Dict
 from datetime import datetime
 
+import boto3
 from botocore.config import Config as BotoConfig
-from strands import Agent
-from strands.models.bedrock import BedrockModel
 
 from config import Config
 from mcp_integration import MCPIntegration
@@ -14,51 +15,35 @@ from mcp_integration import MCPIntegration
 logger = logging.getLogger(__name__)
 
 class AgentManager:
-    """Manages Strands Agent lifecycle and configuration for Git Repository Research."""
+    """Manages AI agent lifecycle and configuration for Git Repository Research."""
     
     def __init__(self, github_token: Optional[str] = None):
         """Initialize agent manager with optional GitHub token."""
         self.github_token = github_token
-        self.agent = None
+        self.bedrock_client = None
         self.mcp_integration = None
-        self.model = None
         self._initialized = False
         
-    def initialize_agent(self) -> Agent:
-        """Initialize and return the Strands Agent with Bedrock model and MCP tools."""
+    async def initialize_agent(self):
+        """Initialize the AI agent with Bedrock model and MCP tools."""
         try:
-            # Initialize Bedrock model
-            self.model = BedrockModel(
-                model_id=Config.BEDROCK_MODEL_ID,
-                max_tokens=Config.MAX_TOKENS,
-                boto_client_config=BotoConfig(
+            # Initialize Bedrock client
+            self.bedrock_client = boto3.client(
+                'bedrock-runtime',
+                region_name=Config.BEDROCK_REGION,
+                config=BotoConfig(
                     read_timeout=Config.READ_TIMEOUT,
                     connect_timeout=Config.CONNECT_TIMEOUT,
                     retries=dict(max_attempts=Config.MAX_RETRIES, mode="adaptive"),
-                ),
-                temperature=Config.TEMPERATURE
+                )
             )
             
             # Initialize MCP integration
             self.mcp_integration = MCPIntegration(self.github_token)
-            mcp_client = self.mcp_integration.setup_client()
-            
-            # Get available tools
-            tools = self.mcp_integration.list_tools()
-            
-            # Create system prompt
-            system_prompt = self._create_system_prompt()
-            
-            # Initialize Strands Agent
-            self.agent = Agent(
-                system_prompt=system_prompt,
-                model=self.model,
-                tools=tools
-            )
+            await self.mcp_integration.setup_client()
             
             self._initialized = True
-            logger.info("Strands Agent initialized successfully with Bedrock and MCP tools")
-            return self.agent
+            logger.info("AI Agent initialized successfully with Bedrock and MCP tools")
             
         except Exception as e:
             logger.error(f"Failed to initialize agent: {str(e)}")
@@ -85,14 +70,32 @@ When analyzing repositories:
 
 Provide accurate analysis based on the repository data and research tools available."""
     
-    def process_query(self, query: str) -> str:
-        """Process a user query using the initialized agent."""
-        if not self._initialized or not self.agent:
+    async def process_query(self, query: str) -> str:
+        """Process a user query using Bedrock and MCP tools."""
+        if not self._initialized:
             raise RuntimeError("Agent not initialized. Call initialize_agent() first.")
         
         try:
             logger.info(f"Processing query: {query[:100]}...")
-            response = self.agent(query)
+            
+            # Get available tools
+            tools = await self.mcp_integration.list_tools()
+            
+            # Create a simple prompt that includes tool information
+            system_prompt = self._create_system_prompt()
+            tools_info = "\n".join([f"- {tool['name']}: {tool['description']}" for tool in tools])
+            
+            full_prompt = f"""{system_prompt}
+
+Available tools:
+{tools_info}
+
+User query: {query}
+
+Please analyze this query and provide a comprehensive response. If you need to use specific repository analysis tools, describe what information you would gather and how you would analyze it."""
+            
+            # Call Bedrock
+            response = await self._call_bedrock(full_prompt)
             logger.info("Query processed successfully")
             return response
             
@@ -100,13 +103,40 @@ Provide accurate analysis based on the repository data and research tools availa
             logger.error(f"Failed to process query: {str(e)}")
             raise
     
-    def get_available_tools(self) -> List[Dict]:
+    async def _call_bedrock(self, prompt: str) -> str:
+        """Call Amazon Nova Pro via Bedrock."""
+        try:
+            body = {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"text": prompt}]
+                    }
+                ],
+                "max_tokens": Config.MAX_TOKENS,
+                "temperature": Config.TEMPERATURE
+            }
+            
+            response = self.bedrock_client.invoke_model(
+                modelId=Config.BEDROCK_MODEL_ID,
+                body=json.dumps(body),
+                contentType="application/json"
+            )
+            
+            response_body = json.loads(response['body'].read())
+            return response_body['output']['message']['content'][0]['text']
+            
+        except Exception as e:
+            logger.error(f"Bedrock API call failed: {str(e)}")
+            raise
+    
+    async def get_available_tools(self) -> List[Dict]:
         """Get list of available MCP tools."""
         if not self.mcp_integration:
             return []
         
         try:
-            return self.mcp_integration.list_tools()
+            return await self.mcp_integration.list_tools()
         except Exception as e:
             logger.error(f"Failed to get available tools: {str(e)}")
             return []
@@ -118,9 +148,6 @@ Provide accurate analysis based on the repository data and research tools availa
         if self.mcp_integration:
             try:
                 self.mcp_integration.update_github_token(token)
-                # Reinitialize agent with updated MCP client
-                if self._initialized:
-                    self.initialize_agent()
                 logger.info("GitHub token updated successfully")
             except Exception as e:
                 logger.error(f"Failed to update GitHub token: {str(e)}")
@@ -128,13 +155,13 @@ Provide accurate analysis based on the repository data and research tools availa
     
     def is_initialized(self) -> bool:
         """Check if agent is properly initialized."""
-        return self._initialized and self.agent is not None
+        return self._initialized and self.bedrock_client is not None
     
     def get_connection_status(self) -> Dict[str, bool]:
         """Get status of various connections."""
         status = {
             "agent_initialized": self.is_initialized(),
-            "bedrock_model": self.model is not None,
+            "bedrock_model": self.bedrock_client is not None,
             "mcp_connected": False,
             "github_token_set": bool(self.github_token)
         }
@@ -144,12 +171,12 @@ Provide accurate analysis based on the repository data and research tools availa
         
         return status
     
-    def get_tool_descriptions(self) -> Dict[str, str]:
+    async def get_tool_descriptions(self) -> Dict[str, str]:
         """Get descriptions of available tools."""
         if not self.mcp_integration:
             return {}
         
-        return self.mcp_integration.get_tool_descriptions()
+        return await self.mcp_integration.get_tool_descriptions()
     
     def cleanup(self):
         """Clean up agent resources."""
@@ -157,8 +184,7 @@ Provide accurate analysis based on the repository data and research tools availa
             if self.mcp_integration:
                 self.mcp_integration.close()
             
-            self.agent = None
-            self.model = None
+            self.bedrock_client = None
             self.mcp_integration = None
             self._initialized = False
             
@@ -167,12 +193,20 @@ Provide accurate analysis based on the repository data and research tools availa
         except Exception as e:
             logger.error(f"Error during cleanup: {str(e)}")
     
-    def create_query_record(self, query: str, response: str, success: bool = True) -> Dict:
+    async def create_query_record(self, query: str, response: str, success: bool = True) -> Dict:
         """Create a record of a query and response for history tracking."""
+        tools_count = 0
+        if self.mcp_integration:
+            try:
+                tools = await self.get_available_tools()
+                tools_count = len(tools)
+            except:
+                tools_count = 0
+        
         return {
             "query": query,
             "response": response,
             "timestamp": datetime.now(),
             "success": success,
-            "tools_available": len(self.get_available_tools()) if self.mcp_integration else 0
+            "tools_available": tools_count
         }

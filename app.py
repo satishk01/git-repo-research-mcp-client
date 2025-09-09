@@ -2,6 +2,7 @@
 
 import streamlit as st
 import logging
+import asyncio
 from datetime import datetime
 from typing import Dict, List
 
@@ -91,11 +92,11 @@ def initialize_agent():
             # Create agent manager
             st.session_state.agent_manager = AgentManager(st.session_state.github_token)
             
-            # Initialize agent
-            st.session_state.agent_manager.initialize_agent()
+            # Initialize agent (async)
+            asyncio.run(st.session_state.agent_manager.initialize_agent())
             
-            # Get available tools
-            st.session_state.current_tools = st.session_state.agent_manager.get_available_tools()
+            # Get available tools (async)
+            st.session_state.current_tools = asyncio.run(st.session_state.agent_manager.get_available_tools())
             
             st.session_state.agent_initialized = True
             st.success("✅ Agent initialized successfully!")
@@ -162,13 +163,13 @@ def process_query(query: str):
     """Process a user query and display results."""
     try:
         with st.spinner("🤖 Analyzing repository... This may take a moment."):
-            # Process query with agent
-            response = st.session_state.agent_manager.process_query(query)
+            # Process query with agent (async)
+            response = asyncio.run(st.session_state.agent_manager.process_query(query))
             
-            # Create query record
-            query_record = st.session_state.agent_manager.create_query_record(
+            # Create query record (async)
+            query_record = asyncio.run(st.session_state.agent_manager.create_query_record(
                 query, response, success=True
-            )
+            ))
             
             # Add to history
             st.session_state.query_history.append(query_record)
@@ -185,10 +186,10 @@ def process_query(query: str):
         st.error(f"❌ {error_msg}")
         logger.error(error_msg)
         
-        # Add error to history
-        error_record = st.session_state.agent_manager.create_query_record(
+        # Add error to history (async)
+        error_record = asyncio.run(st.session_state.agent_manager.create_query_record(
             query, error_msg, success=False
-        )
+        ))
         st.session_state.query_history.append(error_record)
 
 def render_query_history():

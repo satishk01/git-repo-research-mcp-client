@@ -35,13 +35,26 @@ This Streamlit application provides an interactive web interface for researching
 
 ## Installation
 
-### 1. Install Python Dependencies
+### 1. Install System Dependencies (EC2 Amazon Linux)
+
+```bash
+# Install build tools and C++ compiler
+sudo yum update -y
+sudo yum groupinstall -y "Development Tools"
+sudo yum install -y gcc-c++ cmake
+
+# Or for Ubuntu/Debian:
+# sudo apt update
+# sudo apt install -y build-essential cmake g++
+```
+
+### 2. Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Install UV and UVX (if not already installed)
+### 3. Install UV and UVX (if not already installed)
 
 ```bash
 # Using pip
@@ -51,7 +64,7 @@ pip install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 3. Verify UVX Installation
+### 4. Verify UVX Installation
 
 ```bash
 uvx --version
@@ -63,7 +76,6 @@ The application requires the following Python packages (see `requirements.txt`):
 
 ```
 streamlit>=1.28.0
-strands>=0.1.0
 boto3>=1.34.0
 botocore>=1.34.0
 mcp>=1.0.0

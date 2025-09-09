@@ -3,9 +3,10 @@
 import logging
 from typing import List, Dict, Optional
 from shutil import which
+import asyncio
+import json
 
 from mcp import stdio_client, StdioServerParameters
-from strands.tools.mcp.mcp_client import MCPClient
 
 from config import Config
 
@@ -20,7 +21,7 @@ class MCPIntegration:
         self.mcp_client = None
         self._tools_cache = None
         
-    def setup_client(self) -> MCPClient:
+    async def setup_client(self):
         """Set up and return MCP client with proper configuration."""
         try:
             # Prepare environment variables
@@ -29,15 +30,13 @@ class MCPIntegration:
                 env_vars["GITHUB_TOKEN"] = self.github_token
             
             # Create MCP client
-            self.mcp_client = MCPClient(lambda: stdio_client(
+            self.mcp_client = await stdio_client(
                 StdioServerParameters(
                     command=which(Config.MCP_SERVER_COMMAND),
                     args=Config.MCP_SERVER_ARGS,
-                    env=env_vars,
-                    disabled=False,
-                    autoApprove=[]
+                    env=env_vars
                 )
-            ))
+            )
             
             logger.info("MCP client setup completed successfully")
             return self.mcp_client
@@ -46,20 +45,33 @@ class MCPIntegration:
             logger.error(f"Failed to setup MCP client: {str(e)}")
             raise
     
-    def list_tools(self) -> List[Dict]:
+    async def list_tools(self) -> List[Dict]:
         """List all available tools from the MCP server."""
         if not self.mcp_client:
             raise RuntimeError("MCP client not initialized. Call setup_client() first.")
         
         try:
             if self._tools_cache is None:
-                self._tools_cache = self.mcp_client.list_tools_sync()
+                result = await self.mcp_client.list_tools()
+                self._tools_cache = result.tools
                 logger.info(f"Retrieved {len(self._tools_cache)} tools from MCP server")
             
-            return self._tools_cache
+            return [{"name": tool.name, "description": tool.description} for tool in self._tools_cache]
             
         except Exception as e:
             logger.error(f"Failed to list MCP tools: {str(e)}")
+            raise
+    
+    async def call_tool(self, tool_name: str, arguments: Dict = None) -> str:
+        """Call a specific MCP tool with arguments."""
+        if not self.mcp_client:
+            raise RuntimeError("MCP client not initialized. Call setup_client() first.")
+        
+        try:
+            result = await self.mcp_client.call_tool(tool_name, arguments or {})
+            return json.dumps(result.content, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to call tool {tool_name}: {str(e)}")
             raise
     
     def update_github_token(self, token: str):
@@ -67,39 +79,16 @@ class MCPIntegration:
         self.github_token = token
         # Clear tools cache to force refresh with new token
         self._tools_cache = None
-        
-        # If client exists, we need to reinitialize it with new token
-        if self.mcp_client:
-            try:
-                self.setup_client()
-                logger.info("MCP client reinitialized with new GitHub token")
-            except Exception as e:
-                logger.error(f"Failed to reinitialize MCP client with new token: {str(e)}")
-                raise
-    
-    def get_client(self) -> MCPClient:
-        """Get the current MCP client, initializing if necessary."""
-        if not self.mcp_client:
-            self.setup_client()
-        return self.mcp_client
+        self.mcp_client = None
     
     def is_connected(self) -> bool:
         """Check if MCP client is connected and functional."""
-        try:
-            if not self.mcp_client:
-                return False
-            
-            # Try to list tools as a connectivity test
-            self.list_tools()
-            return True
-            
-        except Exception:
-            return False
+        return self.mcp_client is not None
     
-    def get_tool_descriptions(self) -> Dict[str, str]:
+    async def get_tool_descriptions(self) -> Dict[str, str]:
         """Get a dictionary of tool names and their descriptions."""
         try:
-            tools = self.list_tools()
+            tools = await self.list_tools()
             return {
                 tool.get('name', 'Unknown'): tool.get('description', 'No description available')
                 for tool in tools
