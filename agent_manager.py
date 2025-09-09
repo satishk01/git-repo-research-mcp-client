@@ -81,18 +81,32 @@ Provide accurate analysis based on the repository data and research tools availa
             # Get available tools
             tools = await self.mcp_integration.list_tools()
             
-            # Create a simple prompt that includes tool information
+            # Create a comprehensive prompt for Git repository analysis
             system_prompt = self._create_system_prompt()
             tools_info = "\n".join([f"- {tool['name']}: {tool['description']}" for tool in tools])
             
             full_prompt = f"""{system_prompt}
 
-Available tools:
+Available Git Repository Research Tools:
 {tools_info}
 
-User query: {query}
+User Query: {query}
 
-Please analyze this query and provide a comprehensive response. If you need to use specific repository analysis tools, describe what information you would gather and how you would analyze it."""
+As a Git Repository Research assistant, please provide a comprehensive analysis for this query. 
+
+If the query involves a specific repository URL:
+1. Analyze the repository structure and organization
+2. Examine the codebase for patterns, architecture, and quality
+3. Review dependencies and potential security concerns
+4. Assess development activity and contributor patterns
+5. Provide actionable insights and recommendations
+
+If the query is general:
+1. Provide expert guidance on Git repository analysis
+2. Explain best practices and methodologies
+3. Suggest specific approaches for repository research
+
+Please provide detailed, actionable insights based on your expertise in repository analysis."""
             
             # Call Bedrock
             response = await self._call_bedrock(full_prompt)
@@ -178,11 +192,11 @@ Please analyze this query and provide a comprehensive response. If you need to u
         
         return await self.mcp_integration.get_tool_descriptions()
     
-    def cleanup(self):
+    async def cleanup(self):
         """Clean up agent resources."""
         try:
             if self.mcp_integration:
-                self.mcp_integration.close()
+                await self.mcp_integration.close()
             
             self.bedrock_client = None
             self.mcp_integration = None
